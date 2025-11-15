@@ -259,9 +259,9 @@ test "Basic decimal dot functionality" {
     try t.expectEqual(123, parseInt(i32, "123.0"));
     try t.expectEqual(123, parseInt(i32, "123.0000"));
 
-    try t.expectEqual(132, parseInt(i32, "0.123 k"));
-    try t.expectEqual(132_456, parseInt(i32, "123.123 k"));
-    try t.expectEqual(132_123, parseInt(i32, "123.123123 k"));
+    try t.expectEqual(123, parseInt(i32, "0.123 k"));
+    try t.expectEqual(123_456, parseInt(i32, "123.456 k"));
+    try t.expectEqual(123_456, parseInt(i32, "123.456789 k"));
 }
 
 // test "Rounding" { // TODO: decide rounding behavior
