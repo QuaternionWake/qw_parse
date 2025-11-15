@@ -213,8 +213,12 @@ test "Underscores not supported" {
     try t.expectError(error.InvalidCharacter, parseInt(i32, "_123"));
 }
 
-test "Base greater than max(T)" {
+test "Ten is greater than max(T)" {
     try t.expectEqual(3, parseInt(u2, "3"));
+    try t.expectEqual(3, parseInt(i3, "3"));
+    try t.expectEqual(-4, parseInt(i3, "-4"));
+
+    try t.expectError(error.Underflow, parseInt(u2, "-1"));
 }
 
 test "Basic suffix functionality" {
