@@ -40,6 +40,7 @@ pub fn parseInt(T: type, string: []const u8) ParseError!T {
         if (chunks.decimal) |str| blk: {
             const trailing_zeros_start = (mem.lastIndexOfAny(u8, str, digits[1..]) orelse break :blk 0) + 1;
             const end = @min(trailing_zeros_start, chunks.order_of_magnitude);
+            if (end == 0) break :blk 0;
             // Can't overflow as end can't be greater than
             // chunks.order_of_magnitude due to the line above
             const oom = chunks.order_of_magnitude - end;
@@ -268,15 +269,18 @@ test "Basic decimal dot functionality" {
     try t.expectEqual(123_456, parseInt(i32, "123.456789 k"));
 }
 
-// test "Rounding" { // TODO: decide rounding behavior
-// try t.expectEqual(123, parse(i32, "123.4"));
-//     try t.expectEqual(123, parse(i32, "123.5"));
-//     try t.expectEqual(123, parse(i32, "123.6"));
+test "Rounding towards zero" {
+    try t.expectEqual(123, parseInt(i32, "123.4"));
+    try t.expectEqual(123, parseInt(i32, "123.5"));
+    try t.expectEqual(123, parseInt(i32, "123.6"));
 
-//     try t.expectEqual(123, parse(i32, "-123.4"));
-//     try t.expectEqual(123, parse(i32, "-123.5"));
-//     try t.expectEqual(123, parse(i32, "-123.6"));
-// }
+    try t.expectEqual(-123, parseInt(i32, "-123.4"));
+    try t.expectEqual(-123, parseInt(i32, "-123.5"));
+    try t.expectEqual(-123, parseInt(i32, "-123.6"));
+
+    try t.expectEqual(123, parseInt(i32, "0.1234 k"));
+    try t.expectEqual(-123, parseInt(i32, "-0.1234 k"));
+}
 
 test "Trailing and leading dot are allowed" {
     try t.expectEqual(123, parseInt(i32, "123."));
