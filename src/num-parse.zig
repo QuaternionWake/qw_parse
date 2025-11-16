@@ -31,7 +31,8 @@ pub fn parseInt(T: type, string: []const u8) ParseError!T {
             const int = fmt.parseInt(TempT, str, 10) catch |err|
                 return convertError(err, chunks.sign);
             if (int == 0) break :blk 0;
-            const pow_of_10 = try math.powi(TempT, 10, chunks.order_of_magnitude);
+            const pow_of_10 = try math.powi(TempT, 10, chunks.order_of_magnitude orelse
+                return convertError(error.Overflow, chunks.sign));
             break :blk math.mul(TempT, int, pow_of_10) catch |err|
                 return convertError(err, chunks.sign);
         } else 0;
@@ -39,11 +40,12 @@ pub fn parseInt(T: type, string: []const u8) ParseError!T {
     const decimal =
         if (chunks.decimal) |str| blk: {
             const trailing_zeros_start = (mem.lastIndexOfAny(u8, str, digits[1..]) orelse break :blk 0) + 1;
-            const end = @min(trailing_zeros_start, chunks.order_of_magnitude);
+            const unwrapped_oom = chunks.order_of_magnitude orelse return convertError(error.Overflow, chunks.sign);
+            const end = @min(trailing_zeros_start, unwrapped_oom);
             if (end == 0) break :blk 0;
             // Can't overflow as end can't be greater than
             // chunks.order_of_magnitude due to the line above
-            const oom = chunks.order_of_magnitude - end;
+            const oom = unwrapped_oom - end;
 
             const dec = fmt.parseInt(TempT, str[0..end], 10) catch |err|
                 return convertError(err, chunks.sign);
@@ -89,7 +91,7 @@ const NumberChunks = struct {
     decimal: ?[]const u8,
 
     sign: Sign,
-    order_of_magnitude: u8,
+    order_of_magnitude: ?u8,
 
     const Sign = enum { pos, neg };
 
@@ -115,7 +117,10 @@ const NumberChunks = struct {
                 if (mem.lastIndexOfAny(u8, string, "eE")) |idx| {
                     if (idx == num_start) return error.NoNumber;
                     const oom = fmt.parseUnsigned(u8, string[idx + 1 ..], 10) catch |err|
-                        return convertError(err, sign);
+                        switch (err) {
+                            error.InvalidCharacter => return convertError(err, sign),
+                            error.Overflow => null,
+                        };
                     break :blk .{ oom, idx };
                 } else break :blk .{ 0, string.len };
             }
@@ -355,4 +360,11 @@ test "Invalid e-suffixes" {
     try t.expectError(error.InvalidCharacter, parseInt(i32, "123e-3"));
 
     try t.expectError(error.NoNumber, parseInt(i32, "e123"));
+}
+
+test "E-suffix overflow" {
+    try t.expectError(error.Overflow, parseInt(i32, "1e100000"));
+    try t.expectError(error.Underflow, parseInt(i32, "-1e100000"));
+
+    try t.expectEqual(0, parseInt(i32, "0e10000000000"));
 }
