@@ -150,15 +150,28 @@ const NumberChunks = struct {
 };
 
 fn parseSuffix(string: []const u8) !u8 {
-    for (suffixes, 1..) |suffix, i| {
-        if (ascii.eqlIgnoreCase(string, suffix)) {
+    for (short_suffixes, long_suffixes, 1..) |short, long, i| {
+        if (ascii.eqlIgnoreCase(string, short) or ascii.eqlIgnoreCase(string, long)) {
             return @intCast(i * 3);
         }
     }
     return error.UnknownSuffix;
 }
 
-const suffixes: [11][]const u8 = .{ "K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc", "No", "Dc" };
+const short_suffixes: [11][]const u8 = .{ "K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc", "No", "Dc" };
+const long_suffixes: [11][]const u8 = .{
+    "thousand",
+    "million",
+    "billion",
+    "trillion",
+    "quadrillion",
+    "quintillion",
+    "sextillion",
+    "septillion",
+    "octillion",
+    "nonillion",
+    "decillion",
+};
 
 const allowed_whitespace = " \t";
 const digits = "0123456789";
@@ -255,11 +268,22 @@ test "Suffixes are case insensetive" {
     try t.expectEqual(123_000_000_000_000_000, parseInt(i64, "123 qA"));
 }
 
+test "Long suffixes" {
+    try t.expectEqual(123_000, parseInt(i32, "123 thousand"));
+    try t.expectEqual(123_000, parseInt(i32, "123thousand"));
+    try t.expectEqual(123_000_000, parseInt(i32, "123 MILLION"));
+    try t.expectEqual(123_000_000_000, parseInt(i64, "123 BiLLIoN"));
+}
+
 test "Invalid suffixes" {
     try t.expectError(error.UnknownSuffix, parseInt(i32, "123 H"));
     try t.expectError(error.UnknownSuffix, parseInt(i32, "123 asdf"));
+    try t.expectError(error.UnknownSuffix, parseInt(i32, "123 thousaand"));
 
     try t.expectError(error.InvalidCharacter, parseInt(i32, "123 abc def"));
+    try t.expectError(error.InvalidCharacter, parseInt(i32, "123 thousand thousand"));
+
+    try t.expectError(error.NoNumber, parseInt(i32, "Million"));
 }
 
 test "Base and exponent less then max(T), but their multiple is over" {
