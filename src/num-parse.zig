@@ -40,7 +40,7 @@ pub fn parseInt(T: type, string: []const u8) ParseError!T {
 
     const integer =
         if (chunks.integer) |str| blk: {
-            const int = fmt.parseInt(TempT, str, 10) catch |err|
+            const int = fmt.parseUnsigned(TempT, str, 10) catch |err|
                 return convertError(err, chunks.sign);
             if (int == 0) break :blk 0;
             const pow_of_10 = try math.powi(TempT, 10, chunks.order_of_magnitude orelse
@@ -59,7 +59,7 @@ pub fn parseInt(T: type, string: []const u8) ParseError!T {
             // chunks.order_of_magnitude due to the line above
             const oom = unwrapped_oom - end;
 
-            const dec = fmt.parseInt(TempT, str[0..end], 10) catch |err|
+            const dec = fmt.parseUnsigned(TempT, str[0..end], 10) catch |err|
                 return convertError(err, chunks.sign);
             const pow_of_10 = try math.powi(TempT, 10, oom);
             break :blk math.mul(TempT, dec, pow_of_10) catch |err|
