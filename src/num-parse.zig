@@ -424,7 +424,7 @@ const ParseFloatError = error{
 /// All the suffixes are case insensetive.
 /// Short and long suffixes allow whitespace between them and the number,
 /// e-suffixes don't.
-fn parseFloat(T: type, string: []const u8) ParseFloatError!T {
+pub fn parseFloat(T: type, string: []const u8) ParseFloatError!T {
     if (@typeInfo(T) != .float) {
         @compileError("found type " ++ @typeName(T) ++ ", parseInt only supports integers");
     }
