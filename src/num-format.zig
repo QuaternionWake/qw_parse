@@ -22,10 +22,14 @@ fn IntFormatter(T: type) type {
             } else if (number_info.sign == .pos and self.options.force_sign) {
                 try writer.writeByte('+');
             }
+            if (number_info.oom < 3) {
+                try writer.printInt(number_info.value, 10, .lower, .{});
+                return;
+            }
             if (number_info.oom / 3 < short_suffixes.len + 1) {
                 try switch (self.options.suffix_type) {
-                    .short => printShortSuffix(T, writer, number_info, self.options.precision),
-                    .long => printLongSuffix(T, writer, number_info, self.options.precision),
+                    .short => printShortOrLongSuffix(T, writer, number_info, self.options.precision, .short),
+                    .long => printShortOrLongSuffix(T, writer, number_info, self.options.precision, .long),
                     .scientific => printScientificE(T, writer, number_info, self.options.precision),
                     .engineering => printEngineeringE(T, writer, number_info, self.options.precision),
                 };
@@ -62,44 +66,34 @@ fn NumberInfo(T: type) type {
     };
 }
 
-fn printShortSuffix(T: type, writer: *Writer, number_info: NumberInfo(T), precision: u8) Writer.Error!void {
-    if (number_info.oom < 3) {
-        try writer.printInt(number_info.value, 10, .lower, .{});
-        return;
-    }
-
+fn printShortOrLongSuffix(
+    T: type,
+    writer: *Writer,
+    number_info: NumberInfo(T),
+    precision: u8,
+    suffix: enum { short, long },
+) Writer.Error!void {
     // TODO: again, maybe dont use 8 bit here
     const dot_idx: i8 = @intCast(number_info.oom % 3);
-    const suffix = number_info.oom / 3 - 1;
+    const suffix_idx = number_info.oom / 3 - 1;
     const precision_ = if (precision < dot_idx + 1) @as(u8, @intCast(dot_idx + 1)) else precision;
 
     try printNDigits(@TypeOf(number_info.value), writer, number_info.value, precision_, dot_idx);
-    try writer.writeAll(short_suffixes[suffix]);
+    switch (suffix) {
+        .short => try writer.writeAll(short_suffixes[suffix_idx]),
+        .long => {
+            try writer.writeByte(' ');
+            try writer.writeAll(long_suffixes[suffix_idx]);
+        },
+    }
 }
 
-// TODO: aaaaaaaaaaaaaa not good not good make common function
-fn printLongSuffix(T: type, writer: *Writer, number_info: NumberInfo(T), precision: u8) Writer.Error!void {
-    if (number_info.oom < 3) {
-        try writer.printInt(number_info.value, 10, .lower, .{});
-        return;
-    }
-
-    // TODO: again, maybe dont use 8 bit here
-    const dot_idx: i8 = @intCast(number_info.oom % 3);
-    const suffix = number_info.oom / 3 - 1;
-    const precision_ = if (precision < dot_idx + 1) @as(u8, @intCast(dot_idx + 1)) else precision;
-
-    try printNDigits(@TypeOf(number_info.value), writer, number_info.value, precision_, dot_idx);
-    try writer.writeByte(' ');
-    try writer.writeAll(long_suffixes[suffix]);
-}
-
-fn printScientificE(T: type, writer: *Writer, number_info: NumberInfo(T), precision: u8) Writer.Error!void {
-    if (number_info.oom < 3) {
-        try writer.printInt(number_info.value, 10, .lower, .{});
-        return;
-    }
-
+fn printScientificE(
+    T: type,
+    writer: *Writer,
+    number_info: NumberInfo(T),
+    precision: u8,
+) Writer.Error!void {
     const precision_ = if (precision == 0) 1 else precision;
 
     try printNDigits(@TypeOf(number_info.value), writer, number_info.value, precision_, 0);
@@ -107,12 +101,12 @@ fn printScientificE(T: type, writer: *Writer, number_info: NumberInfo(T), precis
     try writer.printInt(number_info.oom, 10, .lower, .{});
 }
 
-fn printEngineeringE(T: type, writer: *Writer, number_info: NumberInfo(T), precision: u8) Writer.Error!void {
-    if (number_info.oom < 3) {
-        try writer.printInt(number_info.value, 10, .lower, .{});
-        return;
-    }
-
+fn printEngineeringE(
+    T: type,
+    writer: *Writer,
+    number_info: NumberInfo(T),
+    precision: u8,
+) Writer.Error!void {
     // TODO: again, maybe dont use 8 bit here
     const dot_idx: i8 = @intCast(number_info.oom % 3);
     const oom = number_info.oom - @as(u8, @intCast(dot_idx));
