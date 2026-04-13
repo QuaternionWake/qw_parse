@@ -133,16 +133,15 @@ fn printNDigits(T: type, writer: *Writer, value: T, n: usize, dot_idx: i8) Write
         dot_written = true;
 
         const n_zeros = @min(@as(usize, @intCast(-(dot_idx + 1))), n);
-        for (0..n_zeros) |_| {
-            try writer.writeByte('0');
-            digits_written += 1;
-        }
+        try writer.splatByteAll('0', n_zeros);
+        digits_written += n_zeros;
     }
 
     for (digits_written..n) |_| {
         const digit: u8 = @intCast(val / divisor);
         if (!dot_written and current_oom == dot_idx + 1) {
             try writer.writeByte('.');
+            dot_written = true;
         }
         try writer.writeByte(digit + '0');
 
@@ -154,15 +153,14 @@ fn printNDigits(T: type, writer: *Writer, value: T, n: usize, dot_idx: i8) Write
         if (divisor == 0) break;
     }
 
-    for (digits_written..n) |_| {
-        // TODO: !dot_written might be unneccessary here
-        if (!dot_written and current_oom == dot_idx + 1) {
-            try writer.writeByte('.');
-        }
-        try writer.writeByte('0');
-
-        current_oom += 1;
+    if (!dot_written and dot_idx < n - 1) {
+        const n_zeros = @as(usize, @intCast(dot_idx)) - (digits_written - 1);
+        try writer.splatByteAll('0', n_zeros);
+        try writer.writeByte('.');
+        digits_written += n_zeros;
     }
+
+    try writer.splatByteAll('0', n - digits_written);
 }
 
 test "printNDigits" {
