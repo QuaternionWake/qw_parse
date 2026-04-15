@@ -15,11 +15,10 @@ fn IntFormatter(T: type) type {
                 .int, .comptime_int => {},
                 else => @compileError("found type " ++ @typeName(T) ++ ", IntFormatter only supports integers"),
             }
-            // const oom = getOom(T, self.value);
             const number_info: NumberInfo(T) = .init(self.value);
             if (number_info.sign == .neg) {
                 try writer.writeByte('-');
-            } else if (number_info.sign == .pos and self.options.force_sign) {
+            } else if (self.options.force_sign) {
                 try writer.writeByte('+');
             }
             if (number_info.oom < 3) {
@@ -46,7 +45,7 @@ fn IntFormatter(T: type) type {
 fn NumberInfo(T: type) type {
     return struct {
         value: UnsignedT,
-        sign: enum { pos, neg }, // TODO: maybe deduplicate
+        sign: enum { pos, neg },
         oom: u8,
 
         const UnsignedT = toUnsignedOrComptime(T);
