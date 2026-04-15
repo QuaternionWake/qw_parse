@@ -1,6 +1,8 @@
 const std = @import("std");
 const Writer = std.Io.Writer;
 
+const suffixes = @import("suffixes");
+
 pub fn FormatInt(value: anytype, options: FormatOptions) IntFormatter(@TypeOf(value)) {
     return .{ .value = value, .options = options };
 }
@@ -25,7 +27,7 @@ fn IntFormatter(T: type) type {
                 try writer.printInt(number_info.value, 10, .lower, .{});
                 return;
             }
-            if (number_info.oom / 3 < short_suffixes.len + 1) {
+            if (number_info.oom / 3 - 1 <= suffixes.max_suffix) {
                 try switch (self.options.suffix_type) {
                     .short => printShortOrLongSuffix(T, writer, number_info, self.options.precision, .short),
                     .long => printShortOrLongSuffix(T, writer, number_info, self.options.precision, .long),
@@ -46,15 +48,14 @@ fn NumberInfo(T: type) type {
     return struct {
         value: UnsignedT,
         sign: enum { pos, neg },
-        oom: u8,
+        oom: u64,
 
         const UnsignedT = toUnsignedOrComptime(T);
 
         pub fn init(value: T) NumberInfo(T) {
             const sign = if (value < 0) .neg else .pos;
             const positive_value = positiveCast(value);
-            // TODO: maybe dont use 8 bit int
-            const oom: u8 = @intCast(std.math.log10(positive_value));
+            const oom: u64 = @intCast(std.math.log10(positive_value));
 
             return .{
                 .value = positive_value,
@@ -69,20 +70,19 @@ fn printShortOrLongSuffix(
     T: type,
     writer: *Writer,
     number_info: NumberInfo(T),
-    precision: u8,
+    precision: u64,
     suffix: enum { short, long },
 ) Writer.Error!void {
-    // TODO: again, maybe dont use 8 bit here
-    const dot_idx: i8 = @intCast(number_info.oom % 3);
-    const suffix_idx = number_info.oom / 3 - 1;
-    const precision_ = if (precision < dot_idx + 1) @as(u8, @intCast(dot_idx + 1)) else precision;
+    const dot_idx: i64 = @intCast(number_info.oom % 3);
+    const n = number_info.oom / 3 - 1;
+    const precision_ = if (precision < dot_idx + 1) @as(u64, @intCast(dot_idx + 1)) else precision;
 
     try printNDigits(@TypeOf(number_info.value), writer, number_info.value, precision_, dot_idx);
     switch (suffix) {
-        .short => try writer.writeAll(short_suffixes[suffix_idx]),
+        .short => try suffixes.shortSuffix(writer, @intCast(n)),
         .long => {
             try writer.writeByte(' ');
-            try writer.writeAll(long_suffixes[suffix_idx]);
+            try suffixes.longSuffix(writer, @intCast(n));
         },
     }
 }
@@ -91,7 +91,7 @@ fn printScientificE(
     T: type,
     writer: *Writer,
     number_info: NumberInfo(T),
-    precision: u8,
+    precision: u64,
 ) Writer.Error!void {
     const precision_ = if (precision == 0) 1 else precision;
 
@@ -104,19 +104,18 @@ fn printEngineeringE(
     T: type,
     writer: *Writer,
     number_info: NumberInfo(T),
-    precision: u8,
+    precision: u64,
 ) Writer.Error!void {
-    // TODO: again, maybe dont use 8 bit here
-    const dot_idx: i8 = @intCast(number_info.oom % 3);
-    const oom = number_info.oom - @as(u8, @intCast(dot_idx));
-    const precision_ = if (precision < dot_idx + 1) @as(u8, @intCast(dot_idx + 1)) else precision;
+    const dot_idx: i64 = @intCast(number_info.oom % 3);
+    const oom = number_info.oom - @as(u64, @intCast(dot_idx));
+    const precision_ = if (precision < dot_idx + 1) @as(u64, @intCast(dot_idx + 1)) else precision;
 
     try printNDigits(@TypeOf(number_info.value), writer, number_info.value, precision_, dot_idx);
     try writer.writeByte('E');
     try writer.printInt(oom, 10, .lower, .{});
 }
 
-fn printNDigits(T: type, writer: *Writer, value: T, n: usize, dot_idx: i8) Writer.Error!void {
+fn printNDigits(T: type, writer: *Writer, value: T, n: usize, dot_idx: i64) Writer.Error!void {
     const RuntimeT = if (T == comptime_int) std.math.IntFittingRange(value, value) else T;
     const value_oom = if (value == 0) 0 else std.math.log10(value);
     var divisor: RuntimeT = std.math.powi(RuntimeT, 10, value_oom) catch unreachable;
@@ -168,7 +167,7 @@ test "printNDigits" {
             return struct {
                 value: T,
                 n: usize,
-                oom: i8,
+                oom: i64,
 
                 pub fn format(self: @This(), writer: *std.Io.Writer) std.Io.Writer.Error!void {
                     try printNDigits(T, writer, self.value, self.n, self.oom);
@@ -176,7 +175,7 @@ test "printNDigits" {
             };
         }
 
-        fn Format(value: anytype, n: usize, oom: i8) TestFormatter(@TypeOf(value)) {
+        fn Format(value: anytype, n: usize, oom: i64) TestFormatter(@TypeOf(value)) {
             return .{
                 .value = value,
                 .n = n,
@@ -185,7 +184,7 @@ test "printNDigits" {
         }
     };
 
-    const value: u32 = 123456;
+    const value: u64 = 123456;
     try t.expectFmt("123.4", "{f}", .{Formatter.Format(value, 4, 2)});
     try t.expectFmt("1.234", "{f}", .{Formatter.Format(value, 4, 0)});
     try t.expectFmt("0.123", "{f}", .{Formatter.Format(value, 4, -1)});
@@ -226,7 +225,7 @@ fn toUnsignedOrComptime(T: type) type {
 
 pub const FormatOptions = struct {
     // TODO: consider renaming to n_digits
-    precision: u8 = 3,
+    precision: u64 = 3,
     suffix_type: SuffixType = .short,
     fallback_suffix_type: FallbackSuffixType = .scientific,
     force_sign: bool = false,
@@ -234,22 +233,6 @@ pub const FormatOptions = struct {
 
 pub const SuffixType = enum { short, long, scientific, engineering };
 pub const FallbackSuffixType = enum { scientific, engineering };
-
-// TODO: deduplicate
-const short_suffixes: [11][]const u8 = .{ "k", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc", "No", "Dc" };
-const long_suffixes: [11][]const u8 = .{
-    "thousand",
-    "million",
-    "billion",
-    "trillion",
-    "quadrillion",
-    "quintillion",
-    "sextillion",
-    "septillion",
-    "octillion",
-    "nonillion",
-    "decillion",
-};
 
 const t = std.testing;
 
@@ -328,6 +311,6 @@ test "Engineering-E suffixes" {
 }
 
 test "Fallback suffix" {
-    try t.expectFmt("100Dc", "{f}", .{FormatInt(try std.math.powi(u128, 10, 35), .{})});
-    try t.expectFmt("1.00e36", "{f}", .{FormatInt(try std.math.powi(u128, 10, 36), .{})});
+    try t.expectFmt("100NNgNng", "{f}", .{FormatInt(try std.math.powi(u10000, 10, 3002), .{})});
+    try t.expectFmt("1.00e3003", "{f}", .{FormatInt(try std.math.powi(u10000, 10, 3003), .{})});
 }
