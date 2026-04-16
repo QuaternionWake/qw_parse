@@ -79,10 +79,10 @@ fn printShortOrLongSuffix(
 
     try printNDigits(@TypeOf(number_info.value), writer, number_info.value, precision_, dot_idx);
     switch (suffix) {
-        .short => try suffixes.shortSuffix(writer, @intCast(n)),
+        .short => try suffixes.writeShortSuffix(writer, @intCast(n)),
         .long => {
             try writer.writeByte(' ');
-            try suffixes.longSuffix(writer, @intCast(n));
+            try suffixes.writeLongSuffix(writer, @intCast(n));
         },
     }
 }
@@ -311,6 +311,6 @@ test "Engineering-E suffixes" {
 }
 
 test "Fallback suffix" {
-    try t.expectFmt("100NNgNng", "{f}", .{FormatInt(try std.math.powi(u10000, 10, 3002), .{})});
+    try t.expectFmt("100NNgNntg", "{f}", .{FormatInt(try std.math.powi(u10000, 10, 3002), .{})});
     try t.expectFmt("1.00e3003", "{f}", .{FormatInt(try std.math.powi(u10000, 10, 3003), .{})});
 }

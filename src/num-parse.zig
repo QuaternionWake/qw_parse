@@ -4,6 +4,8 @@ const ascii = std.ascii;
 const fmt = std.fmt;
 const math = std.math;
 
+const suffixes = @import("suffixes");
+
 const ParseIntError = error{
     InvalidCharacter,
     UnknownSuffix,
@@ -29,7 +31,7 @@ pub fn parseInt(T: type, string: []const u8) ParseIntError!T {
         .int => |info| info,
         else => @compileError("found type " ++ @typeName(T) ++ ", parseInt only supports integers"),
     };
-    const TempT = @Type(.{ .int = .{ .bits = @max(type_info.bits, 8), .signedness = .unsigned } });
+    const TempT = @Type(.{ .int = .{ .bits = @max(type_info.bits, 64), .signedness = .unsigned } });
 
     // Parse the string into a more managable format
     // Most of the more complex functionality is handled in this function
@@ -43,8 +45,9 @@ pub fn parseInt(T: type, string: []const u8) ParseIntError!T {
             const int = fmt.parseUnsigned(TempT, str, 10) catch |err|
                 return convertError(err, chunks.sign);
             if (int == 0) break :blk 0;
-            const pow_of_10 = try math.powi(TempT, 10, chunks.order_of_magnitude orelse
-                return convertError(error.Overflow, chunks.sign));
+            const pow_of_10 = math.powi(TempT, 10, chunks.order_of_magnitude orelse
+                return convertError(error.Overflow, chunks.sign)) catch
+                return convertError(error.Overflow, chunks.sign);
             break :blk math.mul(TempT, int, pow_of_10) catch |err|
                 return convertError(err, chunks.sign);
         } else 0;
@@ -103,7 +106,7 @@ const IntChunks = struct {
     decimal: ?[]const u8,
 
     sign: Sign,
-    order_of_magnitude: ?u8,
+    order_of_magnitude: ?u64,
 
     const Sign = enum { pos, neg };
 
@@ -128,7 +131,7 @@ const IntChunks = struct {
             if (suffix_start == string.len) {
                 if (mem.lastIndexOfAny(u8, string, "eE")) |idx| {
                     if (idx == num_start) return error.NoNumber;
-                    const oom = fmt.parseUnsigned(u8, string[idx + 1 ..], 10) catch |err|
+                    const oom = fmt.parseUnsigned(u64, string[idx + 1 ..], 10) catch |err|
                         switch (err) {
                             error.InvalidCharacter => return convertError(err, sign),
                             error.Overflow => null,
@@ -166,29 +169,13 @@ const IntChunks = struct {
     }
 };
 
-fn parseSuffix(string: []const u8) !u8 {
-    for (short_suffixes, long_suffixes, 1..) |short, long, i| {
-        if (ascii.eqlIgnoreCase(string, short) or ascii.eqlIgnoreCase(string, long)) {
-            return @intCast(i * 3);
-        }
-    }
-    return error.UnknownSuffix;
+fn parseSuffix(string: []const u8) !u64 {
+    const n =
+        suffixes.parseShortSuffix(string) orelse
+        suffixes.parseLongSuffix(string) orelse
+        return error.UnknownSuffix;
+    return @intCast(n * 3 + 3);
 }
-
-const short_suffixes: [11][]const u8 = .{ "K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc", "No", "Dc" };
-const long_suffixes: [11][]const u8 = .{
-    "thousand",
-    "million",
-    "billion",
-    "trillion",
-    "quadrillion",
-    "quintillion",
-    "sextillion",
-    "septillion",
-    "octillion",
-    "nonillion",
-    "decillion",
-};
 
 const allowed_whitespace = " \t";
 const digits = "0123456789";
@@ -439,7 +426,7 @@ pub fn parseFloat(T: type, string: []const u8) ParseFloatError!T {
 
 const FloatChunks = struct {
     number: []const u8,
-    order_of_magnitude: u8,
+    order_of_magnitude: u64,
 
     pub fn init(string_: []const u8) ParseFloatError!FloatChunks {
         const string = mem.trim(u8, string_, &ascii.whitespace);

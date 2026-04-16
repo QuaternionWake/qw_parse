@@ -1,19 +1,18 @@
+//! This module provides functions for parsing and printing long and short
+//! suffixes. It is only useful if you're writing your own parser or formatter.
 const std = @import("std");
 const Writer = std.Io.Writer;
 
 /// Biggest n that can be given to shortSuffix() and longSuffix()
 pub const max_suffix = 999;
 
-/// Writes nth short suffix
-/// To get the suffix for 10^n, call with n/3 - 1
-/// Asserts n is less than or equal to `max_suffix`
-pub fn shortSuffix(writer: *Writer, n: u10) Writer.Error!void {
+/// Writes nth short suffix.
+/// To get the suffix for 10^n, call with n/3 - 1.
+/// Asserts n is less than or equal to `max_suffix`.
+pub fn writeShortSuffix(writer: *Writer, n: u10) Writer.Error!void {
     switch (n) {
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9 => |i| {
-            const special_cases: [10][]const u8 = .{
-                "k", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc", "No",
-            };
-            return writer.writeAll(special_cases[i]);
+            return writer.writeAll(short_special_cases[i]);
         },
         else => {},
     }
@@ -27,6 +26,59 @@ pub fn shortSuffix(writer: *Writer, n: u10) Writer.Error!void {
     return writer.print("{s}{s}{s}", .{ unit, ten, hundred });
 }
 
+/// Parses `string` as a short suffix case-insensitevely.
+/// To get the order of magnitde, add 1 to result and multiply by 3.
+/// Returns `null` for unknown suffixes.
+pub fn parseShortSuffix(string: []const u8) ?u10 {
+    for (short_special_cases, 0..) |suffix, i| {
+        if (std.ascii.eqlIgnoreCase(string, suffix)) {
+            return @intCast(i);
+        }
+    }
+
+    return parseShortUnit(string);
+}
+
+fn parseShortUnit(str: []const u8) ?u10 {
+    for (short_units[1..], 1..) |unit, i| {
+        if (std.ascii.startsWithIgnoreCase(str, unit)) {
+            const ten_str = str[unit.len..];
+            if (parseShortTen(ten_str)) |result| {
+                return result + @as(u10, @intCast(i));
+            }
+            break;
+        }
+    }
+    return parseShortTen(str);
+}
+
+fn parseShortTen(str: []const u8) ?u10 {
+    if (str.len == 0) return 0;
+    for (short_tens[1..], 1..) |ten, i| {
+        if (std.ascii.startsWithIgnoreCase(str, ten)) {
+            const hundred_str = str[ten.len..];
+            if (parseShortHundred(hundred_str)) |result| {
+                return result + @as(u10, @intCast(i * 10));
+            }
+            break;
+        }
+    }
+    return parseShortHundred(str);
+}
+
+fn parseShortHundred(str: []const u8) ?u10 {
+    if (str.len == 0) return 0;
+    for (short_hundreds[1..], 1..) |hundred, i| {
+        if (std.ascii.startsWithIgnoreCase(str, hundred)) {
+            if (str.len == hundred.len) {
+                return @intCast(i * 100);
+            }
+            break;
+        }
+    }
+    return null;
+}
+
 // As far as I can tell though the full names are standardized, the abbreviatons aren't
 const short_units: [10][]const u8 = .{
     "", "U", "D", "T", "Qa", "Qi", "Sx", "Sp", "O", "N",
@@ -36,29 +88,21 @@ const short_tens: [10][]const u8 = .{
     "", "Dc", "Vi", "Tg", "Qd", "Qq", "Sg", "St", "Og", "Ng",
 };
 
-const short_hundreds: [10][]const u8 = .{
-    "", "Ct", "Dct", "Tct", "Qag", "Qig", "Sct", "Stg", "Otg", "Nng",
+const short_hundreds: [10][]const u8 = .{ // holy collison avoidance
+    "", "Ct", "Duc", "Trc", "Qgt", "Qigt", "Ssc", "Stg", "Octg", "Nntg",
 };
 
-/// Writes nth long suffix
-/// To get the suffix for 10^n, call with n/3 - 1
-/// Asserts n is less than or equal to `max_suffix`
-pub fn longSuffix(writer: *Writer, n: u10) Writer.Error!void {
+const short_special_cases: [10][]const u8 = .{
+    "k", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc", "No",
+};
+
+/// Writes nth long suffix.
+/// To get the suffix for 10^n, call with n/3 - 1.
+/// Asserts n is less than or equal to `max_suffix`.
+pub fn writeLongSuffix(writer: *Writer, n: u10) Writer.Error!void {
     switch (n) {
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9 => |i| {
-            const special_cases: [10][]const u8 = .{
-                "thousand",
-                "million",
-                "billion",
-                "trillion",
-                "quadrillion",
-                "quintillion",
-                "sextillion",
-                "septillion",
-                "octillion",
-                "nonillion",
-            };
-            return writer.writeAll(special_cases[i]);
+            return writer.writeAll(long_special_cases[i]);
         },
         else => {},
     }
@@ -78,6 +122,89 @@ pub fn longSuffix(writer: *Writer, n: u10) Writer.Error!void {
     @memcpy(name[name.len - 6 ..], "illion");
 
     return writer.writeAll(name);
+}
+
+/// Parses `string` as a long suffix case-insensitevely.
+/// To get the order of magnitde, add 1 to result and multiply by 3.
+/// Returns `null` for unknown suffixes.
+pub fn parseLongSuffix(string: []const u8) ?u10 {
+    for (long_special_cases, 0..) |suffix, i| {
+        if (std.ascii.eqlIgnoreCase(string, suffix)) {
+            return @intCast(i);
+        }
+    }
+
+    return parseLongUnit(string);
+}
+
+fn parseLongUnit(str: []const u8) ?u10 {
+    for (long_units[1..], 1..) |unit, i| {
+        if (std.ascii.startsWithIgnoreCase(str, unit.name)) {
+            const ten_str = str[unit.name.len..];
+            if (parseLongTen(ten_str, .none, unit.tags)) |result| {
+                return result + @as(u10, @intCast(i));
+            }
+        }
+        const fields = .{
+            .{ .name = "name_n", .tag = .n },
+            .{ .name = "name_m", .tag = .m },
+            .{ .name = "name_s", .tag = .s },
+            .{ .name = "name_x", .tag = .x },
+        };
+        inline for (fields) |field| {
+            if (@field(unit, field.name)) |name| {
+                if (std.ascii.startsWithIgnoreCase(str, name)) {
+                    const ten_str = str[name.len..];
+                    if (parseLongTen(ten_str, field.tag, .{})) |result| {
+                        return result + @as(u10, @intCast(i));
+                    }
+                }
+            }
+        }
+    }
+    return parseLongTen(str, .none, .{});
+}
+
+const WantedTag = enum { n, m, s, x, none };
+
+fn parseLongTen(str: []const u8, comptime wanted_tag: WantedTag, forbidden_tags: NameInfo.Tags) ?u10 {
+    for (long_tens[1..], 1..) |ten, i| {
+        // TODO: inefficient, make better
+        if (std.ascii.startsWithIgnoreCase(str, ten.name)) {
+            if (wanted_tag != .none and !@field(ten.tags, @tagName(wanted_tag))) break;
+            if (@as(u4, @bitCast(ten.tags)) & @as(u4, @bitCast(forbidden_tags)) != 0) break;
+            const hundred_str = str[ten.name.len..];
+            if (parseLongHundred(hundred_str, .none, .{})) |result| {
+                return result + @as(u10, @intCast(i * 10));
+            }
+        }
+        if (std.ascii.startsWithIgnoreCase(str, ten.name[0 .. ten.name.len - 1])) {
+            const illion_str = str[ten.name.len - 1 ..];
+            if (parseIllionString(illion_str)) {
+                return @intCast(i * 10);
+            }
+        }
+    }
+    return parseLongHundred(str, wanted_tag, forbidden_tags);
+}
+
+fn parseLongHundred(str: []const u8, comptime wanted_tag: WantedTag, forbidden_tags: NameInfo.Tags) ?u10 {
+    if (str.len == 0) return 0;
+    for (long_hundreds[1..], 1..) |hundred, i| {
+        if (std.ascii.startsWithIgnoreCase(str, hundred.name)) {
+            if (wanted_tag != .none and !@field(hundred.tags, @tagName(wanted_tag))) break;
+            if (@as(u4, @bitCast(hundred.tags)) & @as(u4, @bitCast(forbidden_tags)) != 0) break;
+            const illion_str = str[hundred.name.len - 1 ..];
+            if (parseIllionString(illion_str)) {
+                return @intCast(i * 100);
+            }
+        }
+    }
+    return null;
+}
+
+fn parseIllionString(str: []const u8) bool {
+    return std.ascii.eqlIgnoreCase(str, "illion");
 }
 
 const NameInfo = struct {
@@ -109,13 +236,13 @@ const long_units: [10]NameInfo = .{
     .{ .name = "" },
     .{ .name = "un" },
     .{ .name = "duo" },
-    .{ .name = "tre", .name_s = "tres", .name_x = "tres" },
+    .{ .name = "tre", .name_s = "tres", .name_x = "tres", .tags = .{ .s = true, .x = true } },
     .{ .name = "quattuor" },
     .{ .name = "quinqua" },
-    .{ .name = "se", .name_s = "ses", .name_x = "sex" },
-    .{ .name = "septe", .name_n = "septen", .name_m = "septem" },
+    .{ .name = "se", .name_s = "ses", .name_x = "sex", .tags = .{ .s = true, .x = true } },
+    .{ .name = "septe", .name_n = "septen", .name_m = "septem", .tags = .{ .n = true, .m = true } },
     .{ .name = "octo" },
-    .{ .name = "nove", .name_n = "noven", .name_m = "novem" },
+    .{ .name = "nove", .name_n = "noven", .name_m = "novem", .tags = .{ .n = true, .m = true } },
 };
 
 const long_tens: [10]NameInfo = .{
@@ -144,6 +271,19 @@ const long_hundreds: [10]NameInfo = .{
     .{ .name = "nongenti" },
 };
 
+const long_special_cases: [10][]const u8 = .{
+    "thousand",
+    "million",
+    "billion",
+    "trillion",
+    "quadrillion",
+    "quintillion",
+    "sextillion",
+    "septillion",
+    "octillion",
+    "nonillion",
+};
+
 const t = std.testing;
 
 test "Short suffixes" {
@@ -154,15 +294,61 @@ test "Short suffixes" {
         .{ 11, "UDc" },
         .{ 24, "QaVi" },
         .{ 100, "Ct" },
-        .{ 999, "NNgNng" },
+        .{ 999, "NNgNntg" }, // how very easy to read and parse at a glance
     };
 
     for (testcases) |case| {
         const n, const expected = case;
         var buf: [16]u8 = undefined;
         var writer: Writer = .fixed(&buf);
-        try shortSuffix(&writer, n);
+        try writeShortSuffix(&writer, n);
         try t.expectEqualStrings(expected, buf[0..writer.end]);
+    }
+}
+
+test "Parse short suffix" {
+    try t.expectEqual(0, parseShortSuffix("k"));
+    try t.expectEqual(5, parseShortSuffix("Qi"));
+    try t.expectEqual(10, parseShortSuffix("Dc"));
+    try t.expectEqual(11, parseShortSuffix("UDc"));
+    try t.expectEqual(24, parseShortSuffix("QaVi"));
+    try t.expectEqual(100, parseShortSuffix("Ct"));
+    try t.expectEqual(999, parseShortSuffix("NNgNntg"));
+    try t.expectEqual(999, parseShortSuffix("nngnntg"));
+    try t.expectEqual(999, parseShortSuffix("nNGnnTg"));
+}
+
+test "Parse short suffix exhaustive" {
+    for (0..1000) |i| {
+        var buf: [16]u8 = undefined;
+        var writer: Writer = .fixed(&buf);
+        try writeShortSuffix(&writer, @intCast(i));
+        const str = buf[0..writer.end];
+
+        try t.expectEqual(@as(u10, @intCast(i)), parseShortSuffix(str));
+    }
+}
+
+test "Parse long suffix" {
+    try t.expectEqual(0, parseLongSuffix("thousand"));
+    try t.expectEqual(5, parseLongSuffix("quintillion"));
+    try t.expectEqual(10, parseLongSuffix("decillion"));
+    try t.expectEqual(11, parseLongSuffix("undecillion"));
+    try t.expectEqual(24, parseLongSuffix("quattuorvigintillion"));
+    try t.expectEqual(100, parseLongSuffix("centillion"));
+    try t.expectEqual(999, parseLongSuffix("novenonagintanongentillion"));
+    try t.expectEqual(999, parseLongSuffix("NOVENONAGINTANONGENTILLION"));
+    try t.expectEqual(999, parseLongSuffix("nOvEnoNAgIntANonGeNTIlliON"));
+}
+
+test "Parse long suffix exhaustive" {
+    for (0..1000) |i| {
+        var buf: [64]u8 = undefined;
+        var writer: Writer = .fixed(&buf);
+        try writeLongSuffix(&writer, @intCast(i));
+        const str = buf[0..writer.end];
+
+        try t.expectEqual(@as(u10, @intCast(i)), parseLongSuffix(str));
     }
 }
 
@@ -1175,7 +1361,7 @@ test "All long suffixes" {
     for (suffixes, 0..) |expected, i| {
         var buf: [64]u8 = undefined;
         var writer: Writer = .fixed(&buf);
-        try longSuffix(&writer, @intCast(i));
+        try writeLongSuffix(&writer, @intCast(i));
         try t.expectEqualStrings(expected, buf[0..writer.end]);
     }
 }

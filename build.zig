@@ -14,6 +14,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/num-parse.zig"),
         .target = target,
         .optimize = optimize,
+        .imports = &.{.{ .name = "suffixes", .module = suffixes }},
     });
 
     const num_format = b.addModule("num-format", .{
