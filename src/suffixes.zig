@@ -30,6 +30,7 @@ pub fn writeShortSuffix(writer: *Writer, n: u10) Writer.Error!void {
 /// To get the order of magnitde, add 1 to result and multiply by 3.
 /// Returns `null` for unknown suffixes.
 pub fn parseShortSuffix(string: []const u8) ?u10 {
+    if (string.len == 0) return null;
     for (short_special_cases, 0..) |suffix, i| {
         if (std.ascii.eqlIgnoreCase(string, suffix)) {
             return @intCast(i);
@@ -44,7 +45,7 @@ fn parseShortUnit(str: []const u8) ?u10 {
         if (std.ascii.startsWithIgnoreCase(str, unit)) {
             const ten_str = str[unit.len..];
             if (parseShortTen(ten_str)) |result| {
-                return result + @as(u10, @intCast(i));
+                if (result != 0) return result + @as(u10, @intCast(i));
             }
             break;
         }
@@ -142,7 +143,7 @@ fn parseLongUnit(str: []const u8) ?u10 {
         if (std.ascii.startsWithIgnoreCase(str, unit.name)) {
             const ten_str = str[unit.name.len..];
             if (parseLongTen(ten_str, .none, unit.tags)) |result| {
-                return result + @as(u10, @intCast(i));
+                if (result != 0) return result + @as(u10, @intCast(i));
             }
         }
         const fields = .{
@@ -156,7 +157,7 @@ fn parseLongUnit(str: []const u8) ?u10 {
                 if (std.ascii.startsWithIgnoreCase(str, name)) {
                     const ten_str = str[name.len..];
                     if (parseLongTen(ten_str, field.tag, .{})) |result| {
-                        return result + @as(u10, @intCast(i));
+                        if (result != 0) return result + @as(u10, @intCast(i));
                     }
                 }
             }
@@ -189,7 +190,7 @@ fn parseLongTen(str: []const u8, comptime wanted_tag: WantedTag, forbidden_tags:
 }
 
 fn parseLongHundred(str: []const u8, comptime wanted_tag: WantedTag, forbidden_tags: NameInfo.Tags) ?u10 {
-    if (str.len == 0) return 0;
+    if (parseIllionString(str)) return 0;
     for (long_hundreds[1..], 1..) |hundred, i| {
         if (std.ascii.startsWithIgnoreCase(str, hundred.name)) {
             if (wanted_tag != .none and !@field(hundred.tags, @tagName(wanted_tag))) break;
@@ -316,6 +317,12 @@ test "Parse short suffix" {
     try t.expectEqual(999, parseShortSuffix("NNgNntg"));
     try t.expectEqual(999, parseShortSuffix("nngnntg"));
     try t.expectEqual(999, parseShortSuffix("nNGnnTg"));
+
+    try t.expectEqual(null, parseShortSuffix(""));
+    try t.expectEqual(null, parseShortSuffix("U"));
+    try t.expectEqual(null, parseShortSuffix("D"));
+    try t.expectEqual(null, parseShortSuffix("O"));
+    try t.expectEqual(null, parseShortSuffix("N"));
 }
 
 test "Parse short suffix exhaustive" {
@@ -339,6 +346,12 @@ test "Parse long suffix" {
     try t.expectEqual(999, parseLongSuffix("novenonagintanongentillion"));
     try t.expectEqual(999, parseLongSuffix("NOVENONAGINTANONGENTILLION"));
     try t.expectEqual(999, parseLongSuffix("nOvEnoNAgIntANonGeNTIlliON"));
+
+    try t.expectEqual(null, parseLongSuffix(""));
+    try t.expectEqual(null, parseLongSuffix("un"));
+    try t.expectEqual(null, parseLongSuffix("quattuor"));
+    try t.expectEqual(null, parseLongSuffix("unillion"));
+    try t.expectEqual(null, parseLongSuffix("quattuorillion"));
 }
 
 test "Parse long suffix exhaustive" {
