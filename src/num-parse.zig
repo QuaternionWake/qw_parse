@@ -31,7 +31,7 @@ pub fn parseInt(T: type, string: []const u8) ParseIntError!T {
         .int => |info| info,
         else => @compileError("found type " ++ @typeName(T) ++ ", parseInt only supports integers"),
     };
-    const TempT = @Type(.{ .int = .{ .bits = @max(type_info.bits, 64), .signedness = .unsigned } });
+    const TempT = @Int(.unsigned, @max(type_info.bits, 64));
 
     // Parse the string into a more managable format
     // Most of the more complex functionality is handled in this function

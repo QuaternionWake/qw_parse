@@ -217,7 +217,7 @@ fn toUnsignedOrComptime(T: type) type {
     if (T == comptime_int) {
         return comptime_int;
     } else if (@typeInfo(T) == .int) {
-        return @Type(.{ .int = .{ .signedness = .unsigned, .bits = @typeInfo(T).int.bits } });
+        return @Int(.unsigned, @typeInfo(T).int.bits);
     } else {
         @compileError("toUnsignedOrComptime only supports ints, found " ++ @typeName(T));
     }
