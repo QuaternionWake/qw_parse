@@ -23,12 +23,13 @@ fn IntFormatter(T: type) type {
             } else if (self.options.force_sign) {
                 try writer.writeByte('+');
             }
-            if (number_info.oom < 3) {
+            if (number_info.oom < self.options.suffix_threshold) {
                 try writer.printInt(number_info.value, 10, .lower, .{});
                 return;
             }
             const needs_fallback = self.options.suffix_type == .long or self.options.suffix_type == .short;
-            if (!needs_fallback or number_info.oom / 3 - 1 <= suffixes.max_suffix) {
+            const fallback_threshold: u64 = @min(self.options.fallback_threshold, suffixes.max_suffix + 1);
+            if (!needs_fallback or number_info.oom / 3 < fallback_threshold + 1) {
                 try switch (self.options.suffix_type) {
                     .short => printShortOrLongSuffix(T, writer, number_info, self.options.precision, .short),
                     .long => printShortOrLongSuffix(T, writer, number_info, self.options.precision, .long),
@@ -74,9 +75,14 @@ fn printShortOrLongSuffix(
     precision: u64,
     suffix: enum { short, long },
 ) Writer.Error!void {
-    const dot_idx: i64 = @intCast(number_info.oom % 3);
-    const n = number_info.oom / 3 - 1;
-    const precision_ = if (precision < dot_idx + 1) @as(u64, @intCast(dot_idx + 1)) else precision;
+    const dot_idx: i64 = switch (number_info.value) {
+        0...9 => -3,
+        10...99 => -2,
+        100...999 => -1,
+        else => @intCast(number_info.oom % 3),
+    };
+    const n = @max(number_info.oom / 3, 1) - 1;
+    const precision_ = if (precision < @abs(dot_idx) + 1) @as(u64, @intCast(@abs(dot_idx) + 1)) else precision;
 
     try printNDigits(@TypeOf(number_info.value), writer, number_info.value, precision_, dot_idx);
     switch (suffix) {
@@ -117,7 +123,7 @@ fn printEngineeringE(
 }
 
 fn printNDigits(T: type, writer: *Writer, value: T, n: usize, dot_idx: i64) Writer.Error!void {
-    const RuntimeT = if (T == comptime_int) std.math.IntFittingRange(value, value) else T;
+    const RuntimeT = if (T == comptime_int) std.math.IntFittingRange(value, @max(value, 10)) else T;
     const value_oom = if (value == 0) 0 else std.math.log10(value);
     var divisor: RuntimeT = std.math.powi(RuntimeT, 10, value_oom) catch unreachable;
     var val: RuntimeT = @intCast(value);
@@ -225,8 +231,10 @@ fn toUnsignedOrComptime(T: type) type {
 pub const FormatOptions = struct {
     // TODO: consider renaming to n_digits
     precision: u64 = 3,
+    suffix_threshold: u64 = 3,
     suffix_type: SuffixType = .short,
     fallback_suffix_type: FallbackSuffixType = .scientific,
+    fallback_threshold: u10 = 11,
     force_sign: bool = false,
 };
 
@@ -310,9 +318,33 @@ test "Engineering-E suffixes" {
 }
 
 test "Fallback suffix" {
-    try t.expectFmt("100NNgNntg", "{f}", .{FormatInt(try std.math.powi(u10000, 10, 3002), .{})});
-    try t.expectFmt("1.00e3003", "{f}", .{FormatInt(try std.math.powi(u10000, 10, 3003), .{})});
+    try t.expectFmt("1.00e3", "{f}", .{FormatInt(1000, .{ .fallback_threshold = 0 })});
+    try t.expectFmt("1.00k", "{f}", .{FormatInt(1000, .{ .fallback_threshold = 1 })});
+
+    try t.expectFmt("100Dc", "{f}", .{FormatInt(try std.math.powi(u128, 10, 35), .{})});
+    try t.expectFmt("1.00e36", "{f}", .{FormatInt(try std.math.powi(u128, 10, 36), .{})});
+
+    try t.expectFmt("100Ct", "{f}", .{FormatInt(try std.math.powi(u2000, 10, 305), .{ .fallback_threshold = 101 })});
+    try t.expectFmt("1.00e306", "{f}", .{FormatInt(try std.math.powi(u2000, 10, 306), .{ .fallback_threshold = 101 })});
+
+    try t.expectFmt("100NNgNntg", "{f}", .{FormatInt(try std.math.powi(u10000, 10, 3002), .{ .fallback_threshold = 1023 })});
+    try t.expectFmt("1.00e3003", "{f}", .{FormatInt(try std.math.powi(u10000, 10, 3003), .{ .fallback_threshold = 1023 })});
 
     try t.expectFmt("100E3000", "{f}", .{FormatInt(try std.math.powi(u10000, 10, 3002), .{ .suffix_type = .engineering })});
     try t.expectFmt("1.00E3003", "{f}", .{FormatInt(try std.math.powi(u10000, 10, 3003), .{ .suffix_type = .engineering })});
+}
+
+test "Suffix threshold" {
+    try t.expectFmt("100", "{f}", .{FormatInt(100, .{})});
+    try t.expectFmt("1.00k", "{f}", .{FormatInt(1000, .{})});
+    try t.expectFmt("100", "{f}", .{FormatInt(100, .{ .suffix_type = .scientific })});
+    try t.expectFmt("1.00e3", "{f}", .{FormatInt(1000, .{ .suffix_type = .scientific })});
+
+    try t.expectFmt("100000000", "{f}", .{FormatInt(100_000_000, .{ .suffix_threshold = 9 })});
+    try t.expectFmt("1.00B", "{f}", .{FormatInt(1_000_000_000, .{ .suffix_threshold = 9 })});
+    try t.expectFmt("100000000", "{f}", .{FormatInt(100_000_000, .{ .suffix_threshold = 9, .suffix_type = .scientific })});
+    try t.expectFmt("1.00e9", "{f}", .{FormatInt(1_000_000_000, .{ .suffix_threshold = 9, .suffix_type = .scientific })});
+
+    try t.expectFmt("0.001k", "{f}", .{FormatInt(1, .{ .suffix_threshold = 0 })});
+    try t.expectFmt("1.00e0", "{f}", .{FormatInt(1, .{ .suffix_threshold = 0, .suffix_type = .scientific })});
 }
