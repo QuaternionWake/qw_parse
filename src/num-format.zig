@@ -200,9 +200,7 @@ test "printNDigits" {
 
 fn positiveCast(x: anytype) toUnsignedOrComptime(@TypeOf(x)) {
     if (@TypeOf(x) == comptime_int) {
-        const val = if (x < 0) -x else x;
-        std.debug.assert(val >= 0);
-        return val;
+        return if (x < 0) -x else x;
     }
 
     if (@typeInfo(@TypeOf(x)).int.signedness == .unsigned) return x;
