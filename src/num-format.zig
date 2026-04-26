@@ -27,7 +27,8 @@ fn IntFormatter(T: type) type {
                 try writer.printInt(number_info.value, 10, .lower, .{});
                 return;
             }
-            if (number_info.oom / 3 - 1 <= suffixes.max_suffix) {
+            const needs_fallback = self.options.suffix_type == .long or self.options.suffix_type == .short;
+            if (!needs_fallback or number_info.oom / 3 - 1 <= suffixes.max_suffix) {
                 try switch (self.options.suffix_type) {
                     .short => printShortOrLongSuffix(T, writer, number_info, self.options.precision, .short),
                     .long => printShortOrLongSuffix(T, writer, number_info, self.options.precision, .long),
@@ -313,4 +314,7 @@ test "Engineering-E suffixes" {
 test "Fallback suffix" {
     try t.expectFmt("100NNgNntg", "{f}", .{FormatInt(try std.math.powi(u10000, 10, 3002), .{})});
     try t.expectFmt("1.00e3003", "{f}", .{FormatInt(try std.math.powi(u10000, 10, 3003), .{})});
+
+    try t.expectFmt("100E3000", "{f}", .{FormatInt(try std.math.powi(u10000, 10, 3002), .{ .suffix_type = .engineering })});
+    try t.expectFmt("1.00E3003", "{f}", .{FormatInt(try std.math.powi(u10000, 10, 3003), .{ .suffix_type = .engineering })});
 }
