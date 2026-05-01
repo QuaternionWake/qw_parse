@@ -3,6 +3,7 @@ const mem = std.mem;
 const ascii = std.ascii;
 const fmt = std.fmt;
 const math = std.math;
+const t = std.testing;
 
 const suffixes = @import("suffixes");
 
@@ -240,19 +241,8 @@ fn parseSuffix(string_: []const u8) struct { oom: i64, consumed: usize } {
     return .{ .oom = @intCast(n * 3 + 3), .consumed = suffix_end };
 }
 
-// Still needed for parseFloat
-fn parseSuffix_old(string: []const u8) !u64 {
-    const n =
-        suffixes.parseShortSuffix(string) orelse
-        suffixes.parseLongSuffix(string) orelse
-        return error.UnknownSuffix;
-    return @intCast(n * 3 + 3);
-}
-
 const allowed_whitespace = " \t";
 const digits = "0123456789";
-
-const t = std.testing;
 
 test "Int: Basic parsing" {
     try t.expectEqual(123, parseInt(i32, "123"));
@@ -472,8 +462,6 @@ test "Int: E-suffix overflow" {
 
 const ParseFloatError = error{
     InvalidCharacter,
-    UnknownSuffix,
-    NoNumber,
 };
 
 /// Parses `string` as a base 10 float of type `T`.
@@ -493,64 +481,100 @@ pub fn parseFloat(T: type, string: []const u8) ParseFloatError!T {
         @compileError("found type " ++ @typeName(T) ++ ", parseInt only supports integers");
     }
 
-    const chunks: FloatChunks = try .init(string);
+    // Break up the string into more manageble parts
+    const chunks, const consumed = try floatChunks(string);
+    // Check that we consumed the whole string
+    if (consumed != string.len) return error.InvalidCharacter;
 
-    const pow_of_10 = math.pow(T, 10, @floatFromInt(chunks.order_of_magnitude));
+    const pow_of_10 = math.pow(T, 10, @floatFromInt(@intFromEnum(chunks.oom)));
     const value = try fmt.parseFloat(T, chunks.number);
 
-    return value * pow_of_10;
+    return switch (chunks.sign) {
+        .pos => value * pow_of_10,
+        .neg => -value * pow_of_10,
+    };
 }
 
 const FloatChunks = struct {
     number: []const u8,
-    order_of_magnitude: u64,
 
-    pub fn init(string_: []const u8) ParseFloatError!FloatChunks {
-        const string = mem.trim(u8, string_, &ascii.whitespace);
-
-        if (string.len == 0) return error.NoNumber;
-
-        // Deal with special cases at the start
-        const num_start: usize = if (string[0] == '+' or string[0] == '-') 1 else 0;
-        if (ascii.eqlIgnoreCase(string[num_start..], "inf") or
-            ascii.eqlIgnoreCase(string[num_start..], "infinity") or
-            ascii.eqlIgnoreCase(string[num_start..], "nan"))
-        {
-            return .{ .number = string, .order_of_magnitude = 0 };
-        }
-
-        const num_end = mem.indexOfNone(u8, string, digits ++ "Ee+-.") orelse string.len;
-
-        const oom, const has_suffix = blk: {
-            const suffix_start = if (mem.lastIndexOfNone(u8, string, ascii.letters)) |idx|
-                idx + 1
-            else
-                return error.NoNumber;
-            // Make there is only allowed whitespace between two the end of the number and start of the suffix
-            if (mem.indexOfNone(u8, string[num_end..suffix_start], allowed_whitespace) != null) return error.InvalidCharacter;
-            const suffix_str = mem.trim(u8, string[suffix_start..], allowed_whitespace);
-            if (suffix_str.len == 0) break :blk .{ 0, false };
-            break :blk .{ try parseSuffix_old(suffix_str), true };
-        };
-
-        const number = string[0..num_end];
-
-        // Make sure there is at least one actual digit
-        if (mem.indexOfAny(u8, number, digits) == null) return error.NoNumber;
-
-        // Make sure only one kind of suffix is present
-        if (has_suffix and mem.indexOfAny(u8, number, "Ee") != null) return error.InvalidCharacter;
-
-        // Multiple dots, Es, or minuses or pluses in invalid places get
-        // checked for by fmt.parseFloat anyway, so there's no need to check
-        // for those here
-
-        return .{
-            .number = number,
-            .order_of_magnitude = oom,
-        };
-    }
+    sign: Sign,
+    oom: OrderOfMagnitude,
 };
+
+pub fn floatChunks(string_: []const u8) ParseFloatError!struct { FloatChunks, usize } {
+    var string = string_;
+
+    const signs_end = mem.findNone(u8, string, "+-") orelse return error.InvalidCharacter;
+    const signs_str = string[0..signs_end];
+    const negative = mem.countScalar(u8, signs_str, '-') % 2 == 1;
+    const sign: Sign = if (negative) .neg else .pos;
+    string = string[signs_end..];
+
+    inf_and_nan: {
+        var consumed: usize = 0;
+        if (ascii.startsWithIgnoreCase(string, "inf")) {
+            consumed = 3;
+            if (ascii.startsWithIgnoreCase(string[3..], "inity")) {
+                consumed = 8;
+            }
+        } else if (ascii.startsWithIgnoreCase(string, "nan")) {
+            consumed = 3;
+        } else {
+            break :inf_and_nan;
+        }
+        return .{ .{
+            .number = string[0..consumed],
+            .sign = sign,
+            .oom = @enumFromInt(0),
+        }, string.ptr - string_.ptr + consumed };
+    }
+
+    const num_end = mem.findNone(u8, string, digits ++ ".") orelse string.len;
+    const number = string[0..num_end];
+    string = string[num_end..];
+
+    // We index into string in the if below so first make sure we even can do that
+    if (string.len == 0) {
+        return .{ .{
+            .number = number,
+            .sign = sign,
+            .oom = @enumFromInt(0),
+        }, string.ptr - string_.ptr };
+    }
+
+    // Add e-suffix to number and return
+    if (string[0] == 'e' or string[0] == 'E') {
+        string = string[1..];
+        if (string.len == 0) return error.InvalidCharacter;
+        const start_idx: usize = if (string[0] == '+' or string[0] == '-') 1 else 0;
+        const suffix_end = mem.findNonePos(u8, string, start_idx, digits) orelse string.len;
+        string = string[suffix_end..];
+        return .{ .{
+            .number = number.ptr[0 .. string.ptr - number.ptr],
+            .sign = sign,
+            .oom = @enumFromInt(0),
+        }, string.ptr - string_.ptr };
+    }
+
+    // Consume long/short suffix and return
+    if (mem.findNone(u8, string, allowed_whitespace)) |suffix_start| {
+        const suffix_str = string[suffix_start..];
+        const suffix_info = parseSuffix(suffix_str);
+        string = string[suffix_start + suffix_info.consumed ..];
+        return .{ .{
+            .number = number,
+            .sign = sign,
+            .oom = @enumFromInt(suffix_info.oom),
+        }, string.ptr - string_.ptr };
+    }
+
+    return .{ .{
+        .number = number,
+        .sign = sign,
+        .oom = @enumFromInt(0),
+    }, string.ptr - string_.ptr };
+}
 
 test "Float: Basic float parsing" {
     try t.expectEqual(123, parseFloat(f32, "123"));
@@ -564,10 +588,12 @@ test "Float: Basic float parsing" {
     try t.expectEqual(-0.123, parseFloat(f32, "-.123"));
     try t.expectEqual(123_000, parseFloat(f32, "123.e3"));
 
-    try t.expectError(error.InvalidCharacter, parseFloat(f32, "++123"));
-    try t.expectError(error.InvalidCharacter, parseFloat(f32, "--123"));
-    try t.expectError(error.InvalidCharacter, parseFloat(f32, "+-123"));
-    try t.expectError(error.InvalidCharacter, parseFloat(f32, "-+123"));
+    try t.expectEqual(123, parseFloat(f32, "++123"));
+    try t.expectEqual(123, parseFloat(f32, "--123"));
+    try t.expectEqual(-123, parseFloat(f32, "+-123"));
+    try t.expectEqual(-123, parseFloat(f32, "-+123"));
+    try t.expectEqual(123, parseFloat(f32, "++++++++++123"));
+    try t.expectEqual(123, parseFloat(f32, "----------123"));
 
     try t.expectEqual(123, parseFloat(f32, "0000123"));
     try t.expectEqual(123, parseFloat(f32, "+0000123"));
@@ -585,12 +611,17 @@ test "Float: Overflows, infinity, NaN" {
     try t.expectEqual(math.inf(f32), parseFloat(f32, "inf"));
     try t.expectEqual(math.inf(f32), parseFloat(f32, "+INF"));
     try t.expectEqual(-math.inf(f32), parseFloat(f32, "-iNf"));
+    try t.expectEqual(math.inf(f32), parseFloat(f32, "--++Inf"));
 
     try t.expectEqual(math.inf(f32), parseFloat(f32, "infinity"));
     try t.expectEqual(math.inf(f32), parseFloat(f32, "InFInItY"));
 
     try t.expect(math.isNan(try parseFloat(f32, "nan")));
     try t.expect(math.isNan(try parseFloat(f32, "-NaN")));
+
+    try t.expectError(error.InvalidCharacter, parseFloat(f32, "inf "));
+    try t.expectError(error.InvalidCharacter, parseFloat(f32, "infinityasdf"));
+    try t.expectError(error.InvalidCharacter, parseFloat(f32, "nannannannan"));
 }
 
 test "Float: Invalid characters" {
@@ -600,8 +631,8 @@ test "Float: Invalid characters" {
     try t.expectError(error.InvalidCharacter, parseFloat(f32, "123.45.6"));
     try t.expectError(error.InvalidCharacter, parseFloat(f32, "123e4.56"));
 
-    try t.expectError(error.NoNumber, parseFloat(f32, "ten"));
-    try t.expectError(error.NoNumber, parseFloat(f32, ""));
+    try t.expectError(error.InvalidCharacter, parseFloat(f32, "ten"));
+    try t.expectError(error.InvalidCharacter, parseFloat(f32, ""));
 
     try t.expectError(error.InvalidCharacter, parseFloat(f32, "1_2_3"));
     try t.expectError(error.InvalidCharacter, parseFloat(f32, "123_"));
@@ -645,14 +676,14 @@ test "Float: Long and short suffixes" {
     try t.expectError(error.InvalidCharacter, parseFloat(f32, "123\rk"));
     try t.expectError(error.InvalidCharacter, parseFloat(f32, "123  \n k"));
 
-    try t.expectError(error.UnknownSuffix, parseFloat(f32, "123 H"));
-    try t.expectError(error.UnknownSuffix, parseFloat(f32, "123 asdf"));
-    try t.expectError(error.UnknownSuffix, parseFloat(f32, "123 thousaand"));
+    try t.expectError(error.InvalidCharacter, parseFloat(f32, "123 H"));
+    try t.expectError(error.InvalidCharacter, parseFloat(f32, "123 asdf"));
+    try t.expectError(error.InvalidCharacter, parseFloat(f32, "123 thousaand"));
 
     try t.expectError(error.InvalidCharacter, parseFloat(f32, "123 abc def"));
     try t.expectError(error.InvalidCharacter, parseFloat(f32, "123 thousand thousand"));
 
-    try t.expectError(error.NoNumber, parseFloat(f32, "Million"));
+    try t.expectError(error.InvalidCharacter, parseFloat(f32, "Million"));
 
     try t.expectError(error.InvalidCharacter, parseFloat(f32, "123e3 k"));
     try t.expectError(error.InvalidCharacter, parseFloat(f32, "123e3 million"));
